@@ -7,9 +7,9 @@ namespace Wolverine.Http.CodeGen;
 
 internal class ParsedArrayQueryStringValue : SyncFrame
 {
-    public ParsedArrayQueryStringValue(ParameterInfo parameter)
+    public ParsedArrayQueryStringValue(Type type, string name)
     {
-        Variable = new QuerystringVariable(parameter.ParameterType, parameter.Name!, this);
+        Variable = new QuerystringVariable(type, name, this);
     }
     
     public QuerystringVariable Variable { get; }

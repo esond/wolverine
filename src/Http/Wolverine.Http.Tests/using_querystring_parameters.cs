@@ -3,6 +3,7 @@ using Shouldly;
 using Wolverine.Http.CodeGen;
 using Wolverine.Runtime;
 using WolverineWebApi;
+using SortDirection = WolverineWebApi.SortDirection;
 
 namespace Wolverine.Http.Tests;
 
@@ -301,6 +302,43 @@ public class using_querystring_parameters : IntegrationContext
         });
 
         body.ReadAsText().ShouldBe("Amount is 42.1");
+    }
+
+    #endregion
+
+    #region sample_query_string_object_usage
+
+    [Fact]
+    public async Task using_object_from_query_completely_hit()
+    {
+        var expected = new DataRequest
+        {
+            PageNumber = 1,
+            PageSize = 2,
+            SortDirection = SortDirection.Descending,
+            Filters = ["bluey", "bingo"],
+            OrderBy = "bandit"
+        };
+
+        var body = await Scenario(x =>
+        {
+            x.Get
+                .Url("/querystring/object")
+                .QueryString("pageNumber", "1")
+                .QueryString("pageSize", "2")
+                .QueryString("filters", "bluey")
+                .QueryString("dir", "1")
+                .QueryString("filters", "bingo")
+                .QueryString("orderBy", "bandit");
+        });
+
+        var content = body.ReadAsJson<DataRequest>();
+
+        content.PageNumber.ShouldBe(expected.PageNumber);
+        content.PageSize.ShouldBe(expected.PageSize);
+        content.SortDirection.ShouldBe(expected.SortDirection);
+        content.Filters.ShouldBe(expected.Filters);
+        content.OrderBy.ShouldBe(expected.OrderBy);
     }
 
     #endregion

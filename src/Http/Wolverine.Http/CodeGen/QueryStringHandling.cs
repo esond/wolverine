@@ -36,9 +36,9 @@ internal class ReadStringQueryStringValue : SyncFrame
 
 internal class ParsedQueryStringValue : SyncFrame
 {
-    public ParsedQueryStringValue(ParameterInfo parameter)
+    public ParsedQueryStringValue(Type type, string name)
     {
-        Variable = new QuerystringVariable(parameter.ParameterType, parameter.Name!, this);
+        Variable = new QuerystringVariable(type, name!, this);
     }
 
     public QuerystringVariable Variable { get; }
@@ -71,10 +71,10 @@ internal class ParsedNullableQueryStringValue : SyncFrame
     private readonly string _alias;
     private Type _innerTypeFromNullable;
 
-    public ParsedNullableQueryStringValue(ParameterInfo parameter)
+    public ParsedNullableQueryStringValue(Type type, string name)
     {
-        Variable = new QuerystringVariable(parameter.ParameterType, parameter.Name!, this);
-        _innerTypeFromNullable = parameter.ParameterType.GetInnerTypeFromNullable();
+        Variable = new QuerystringVariable(type,name!, this);
+        _innerTypeFromNullable = type.GetInnerTypeFromNullable();
         _alias = _innerTypeFromNullable.FullNameInCode();
     }
 
@@ -107,10 +107,10 @@ internal class ParsedCollectionQueryStringValue : SyncFrame
 {
     private readonly Type _collectionElementType;
 
-    public ParsedCollectionQueryStringValue(ParameterInfo parameter)
+    public ParsedCollectionQueryStringValue(Type type, string name)
     {
-        Variable = new QuerystringVariable(parameter.ParameterType, parameter.Name!, this);
-        _collectionElementType = GetCollectionElementType(parameter.ParameterType);
+        Variable = new QuerystringVariable(type, name!, this);
+        _collectionElementType = GetCollectionElementType(type);
     }
 
     public QuerystringVariable Variable { get; }

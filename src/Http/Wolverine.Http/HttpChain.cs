@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Text.Json;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Frames;
@@ -317,7 +318,9 @@ public partial class HttpChain : Chain<HttpChain, ModifyHttpChainAttribute>, ICo
     {
         var key = parameter.Name;
 
-        if (parameter.TryGetAttribute<FromQueryAttribute>(out var att) && att.Name.IsNotEmpty())
+        var hasFromQueryAttribute = parameter.TryGetAttribute<FromQueryAttribute>(out var att);
+
+        if (hasFromQueryAttribute && att.Name.IsNotEmpty())
         {
             key = att.Name;
         }
@@ -335,7 +338,7 @@ public partial class HttpChain : Chain<HttpChain, ModifyHttpChainAttribute>, ICo
 
             if (parameter.ParameterType == typeof(string[]))
             {
-                variable = new ParsedArrayQueryStringValue(parameter).Variable;
+                variable = new ParsedArrayQueryStringValue(parameter.ParameterType, key).Variable;
                 variable.Name = key;
                 _querystringVariables.Add(variable);
             }
@@ -345,7 +348,7 @@ public partial class HttpChain : Chain<HttpChain, ModifyHttpChainAttribute>, ICo
                 var inner = parameter.ParameterType.GetInnerTypeFromNullable();
                 if (RouteParameterStrategy.CanParse(inner))
                 {
-                    variable = new ParsedNullableQueryStringValue(parameter).Variable;
+                    variable = new ParsedNullableQueryStringValue(parameter.ParameterType, key).Variable;
                     variable.Name = key;
                     _querystringVariables.Add(variable);
                 }
@@ -353,21 +356,28 @@ public partial class HttpChain : Chain<HttpChain, ModifyHttpChainAttribute>, ICo
             
             if (parameter.ParameterType.IsArray && RouteParameterStrategy.CanParse(parameter.ParameterType.GetElementType()))
             {
-                variable = new ParsedArrayQueryStringValue(parameter).Variable;
+                variable = new ParsedArrayQueryStringValue(parameter.ParameterType, key).Variable;
                 variable.Name = key;
                 _querystringVariables.Add(variable);
             }
 
             if (ParsedCollectionQueryStringValue.CanParse(parameter.ParameterType))
             {
-                variable = new ParsedCollectionQueryStringValue(parameter).Variable;
+                variable = new ParsedCollectionQueryStringValue(parameter.ParameterType, key).Variable;
+                variable.Name = key;
+                _querystringVariables.Add(variable);
+            }
+
+            if (hasFromQueryAttribute && ComplexObjectQueryStringValue.CanParse(parameter.ParameterType))
+            {
+                variable = new ComplexObjectQueryStringValue(parameter).Variable;
                 variable.Name = key;
                 _querystringVariables.Add(variable);
             }
 
             if (RouteParameterStrategy.CanParse(parameter.ParameterType))
             {
-                variable = new ParsedQueryStringValue(parameter).Variable;
+                variable = new ParsedQueryStringValue(parameter.ParameterType, key).Variable;
                 variable.Name = key;
                 _querystringVariables.Add(variable);
             }

@@ -41,4 +41,30 @@ public static class QuerystringEndpoints
 
         return values.OrderBy(x => x).Select(x => x.ToString()).Join(",");
     }
+
+    [WolverineGet("/querystring/object")]
+    public static DataRequest Object([FromQuery] DataRequest request)
+    {
+        return request;
+    }
+}
+
+public record DataRequest
+{
+    public required int PageNumber { get; set; }
+
+    public int PageSize { get; init ; }
+
+    public string? OrderBy { get; set; }
+
+    public string[] Filters { get; set; } = [];
+
+    [FromQuery(Name = "dir")]
+    public SortDirection SortDirection { get; set; }
+}
+
+public enum SortDirection
+{
+    Ascending,
+    Descending
 }
