@@ -3,6 +3,7 @@ using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core.Reflection;
+using Microsoft.AspNetCore.Mvc;
 using Wolverine.Runtime;
 
 namespace Wolverine.Http.CodeGen;
@@ -62,7 +63,7 @@ internal class JsonBodyParameterStrategy : IParameterStrategy
     {
         variable = default!;
 
-        if (chain.HttpMethods.Contains("GET"))
+        if (!parameter.ParameterType.IsConcrete())
         {
             return false;
         }
@@ -72,7 +73,12 @@ internal class JsonBodyParameterStrategy : IParameterStrategy
             return false;
         }
 
-        if (chain.RequestType == null && parameter.ParameterType.IsConcrete())
+        if (chain.HttpMethods.Contains("GET") && !parameter.HasAttribute<FromBodyAttribute>())
+        {
+            return false;
+        }
+
+        if (chain.RequestType == null)
         {
             // It *could* be used twice, so let's watch out for this!
             chain.RequestBodyVariable ??= Usage == JsonUsage.SystemTextJson

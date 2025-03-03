@@ -3,7 +3,9 @@
 First, a little terminology about Wolverine HTTP endpoints. Consider the following endpoint method:
 
 <!-- snippet: sample_simple_wolverine_http_endpoint -->
+
 <a id='snippet-sample_simple_wolverine_http_endpoint'></a>
+
 ```cs
 [WolverinePost("/question")]
 public static ArithmeticResults PostJson(Question question)
@@ -15,14 +17,18 @@ public static ArithmeticResults PostJson(Question question)
     };
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/TestEndpoints.cs#L83-L95' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_simple_wolverine_http_endpoint' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 In the method signature above, `Question` is the "request" type (the payload sent from the client to the server) and `ArithmeticResults` is the "resource" type (what is being returned to the client).
 If instead that method were asynchronous like this:
 
 <!-- snippet: sample_simple_wolverine_http_endpoint_async -->
+
 <a id='snippet-sample_simple_wolverine_http_endpoint_async'></a>
+
 ```cs
 [WolverinePost("/question2")]
 public static Task<ArithmeticResults> PostJsonAsync(Question question)
@@ -36,7 +42,9 @@ public static Task<ArithmeticResults> PostJsonAsync(Question question)
     return Task.FromResult(results);
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/TestEndpoints.cs#L97-L111' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_simple_wolverine_http_endpoint_async' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 The resource type is still `ArithmeticResults`. Likewise, if an endpoint returns `ValueTask<ArithmeticResults>`, the resource type
@@ -51,27 +59,29 @@ using the `IParameterStrategy` plugin interface explained later in this page.
 :::
 
 First off, every endpoint method must be a `public` method on a `public` type to accommodate the runtime code generation.
-After that, you have quite a bit of flexibility. 
+After that, you have quite a bit of flexibility.
 
-In terms of what the legal parameters to your endpoint method, Wolverine uses these rules *in order of precedence*
+In terms of what the legal parameters to your endpoint method, Wolverine uses these rules _in order of precedence_
 to determine how to source that parameter at runtime:
 
-| Type or Description                        | Behavior                                                                                                                |
-|--------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| Decorated with `[FromServices]`            | The argument is resolved as an IoC service                                                                              |
-| `IMessageBus`                              | Creates a new Wolverine message bus object                                                                              |
-| `HttpContext` or its members               | See the section below on accessing the HttpContext                                                                      |
-| Parameter name matches a route parameter   | See the [routing page](/guide/http/routing) for more information                                                        |
-| Decorated with `[FromHeader]`              | See [working with headers](/guide/http/headers) for more information                                                    |
+| Type or Description                        | Behavior                                                                                       |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Decorated with `[FromServices]`            | The argument is resolved as an IoC service                                                     |
+| `IMessageBus`                              | Creates a new Wolverine message bus object                                                     |
+| `HttpContext` or its members               | See the section below on accessing the HttpContext                                             |
+| Parameter name matches a route parameter   | See the [routing page](/guide/http/routing) for more information                               |
+| Decorated with `[FromHeader]`              | See [working with headers](/guide/http/headers) for more information                           |
 | `string`, `int`, `Guid`, etc.              | All other "simple" .NET types are assumed to be [query string values](/guide/http/querystring) |
-| The first concrete, "not simple" parameter | Deserializes the HTTP request body as JSON to this type                                                                 |
-| Every thing else                           | Wolverine will try to source the type as an IoC service |
+| The first concrete, "not simple" parameter | Deserializes the HTTP request body as JSON to this type                                        |
+| Every thing else                           | Wolverine will try to source the type as an IoC service                                        |
 
 You can force Wolverine to ignore a parameter as the request body type by decorating
 the parameter with the `[NotBody]` attribute like this:
 
 <!-- snippet: sample_using_not_body_attribute -->
+
 <a id='snippet-sample_using_not_body_attribute'></a>
+
 ```cs
 [WolverinePost("/notbody")]
 // The Recorder parameter will be sourced as an IoC service
@@ -82,7 +92,9 @@ public string PostNotBody([NotBody] Recorder recorder)
     return "all good";
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/AttributeEndpoints.cs#L15-L26' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_using_not_body_attribute' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 ::: warning
@@ -92,10 +104,16 @@ invalid HTTP status code may result in a web browser hanging -- and that's not t
 like to happen!
 :::
 
+For `GET` endpoints, you can supply a concrete, "not simple" parameter as a JSON
+body by decorating the parameter with the `[FromBody]` attribute:
+
+<!-- snippet: sample_using_from_body_attribute -->
+<!-- endSnippet -->
+
 In terms of the response type, you can use:
 
 | Type                           | Body         | Status Code       | Notes                                                                     |
-|--------------------------------|--------------|-------------------|---------------------------------------------------------------------------|
+| ------------------------------ | ------------ | ----------------- | ------------------------------------------------------------------------- |
 | `void` / `Task` / `ValueTask`  | Empty        | 200               |                                                                           |
 | `string`                       | "text/plain" | 200               | Writes the result to the response                                         |
 | `int`                          | Empty        | Value of response | **Note**, this must be a valid HTTP status code or bad things may happen! |
@@ -104,16 +122,18 @@ In terms of the response type, you can use:
 | `AcceptResponse` or subclass   | JSON         | 202               | The response is serialized, and writes a `location` response header       |
 | Any other type                 | JSON         | 200               | The response is serialized to JSON                                        |
 
-In all cases up above, if the endpoint method is asynchronous using either `Task<T>` or `ValueTask<T>`, the `T` is the 
+In all cases up above, if the endpoint method is asynchronous using either `Task<T>` or `ValueTask<T>`, the `T` is the
 response type. In other words, a response of `Task<string>` has the same rules as a response of `string` and `ValueTask<int>`
-behaves the same as a response of `int`. 
+behaves the same as a response of `int`.
 
-And now to complicate *everything*, but I promise this is potentially valuable, you can also use [Tuples](https://learn.microsoft.com/en-us/dotnet/api/system.tuple?view=net-7.0) as the return
-type of an HTTP endpoint. In this case, the first item in the tuple is the official response type that is treated by the 
+And now to complicate _everything_, but I promise this is potentially valuable, you can also use [Tuples](https://learn.microsoft.com/en-us/dotnet/api/system.tuple?view=net-7.0) as the return
+type of an HTTP endpoint. In this case, the first item in the tuple is the official response type that is treated by the
 rules above. To make that concrete, consider this sample that we wrote in the introduction to Wolverine.Http:
 
 <!-- snippet: sample_using_wolverine_endpoint_for_create_todo -->
+
 <a id='snippet-sample_using_wolverine_endpoint_for_create_todo'></a>
+
 ```cs
 // Introducing this special type just for the http response
 // gives us back the 201 status code
@@ -145,10 +165,12 @@ public static class TodoCreationEndpoint
     }
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/Samples/TodoController.cs#L80-L112' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_using_wolverine_endpoint_for_create_todo' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
-In the case above, `TodoCreationResponse` is the first item in the tuple, so Wolverine treats that as 
+In the case above, `TodoCreationResponse` is the first item in the tuple, so Wolverine treats that as
 the response for the HTTP endpoint. The second `TodoCreated` value in the tuple is treated as a [cascading message](/guide/messaging/transports/local)
 that will be published through Wolverine's messaging (or a local queue depending on the routing).
 
@@ -156,12 +178,14 @@ How Wolverine handles those extra "return values" is the same [return value rule
 from the messaging handlers.
 
 In the case of wanting to leverage Wolverine "return value" actions but you want your endpoint to return an
-empty response body, you can use the `[Wolverine.Http.EmptyResponse]` attribute to tell Wolverine *not*
+empty response body, you can use the `[Wolverine.Http.EmptyResponse]` attribute to tell Wolverine _not_
 to use any return values as a the endpoint response and to return an empty response with a `204` status
 code. Here's an example from the tests:
 
 <!-- snippet: sample_using_EmptyResponse -->
+
 <a id='snippet-sample_using_emptyresponse'></a>
+
 ```cs
 [AggregateHandler]
 [WolverinePost("/orders/ship"), EmptyResponse]
@@ -174,7 +198,9 @@ public static OrderShipped Ship(ShipOrder command, Order order)
     return new OrderShipped();
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/Marten/Orders.cs#L118-L131' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_using_emptyresponse' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 ## JSON Handling
@@ -187,7 +213,9 @@ To create an endpoint that writes a string with `content-type` = "text/plain", j
 from your endpoint method like so:
 
 <!-- snippet: sample_hello_world_with_wolverine_http -->
+
 <a id='snippet-sample_hello_world_with_wolverine_http'></a>
+
 ```cs
 public class HelloEndpoint
 {
@@ -195,7 +223,9 @@ public class HelloEndpoint
     public string Get() => "Hello.";
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Samples/TodoWebService/TodoWebService/HelloEndpoint.cs#L5-L13' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_hello_world_with_wolverine_http' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 ## Using IResult
@@ -204,10 +234,12 @@ public class HelloEndpoint
 The `IResult` mechanics are applied to the return value of any type that can be cast to `IResult`
 :::
 
-Wolverine will execute an ASP.Net Core `IResult` object returned from an HTTP endpoint method. 
+Wolverine will execute an ASP.Net Core `IResult` object returned from an HTTP endpoint method.
 
 <!-- snippet: sample_conditional_IResult_return -->
+
 <a id='snippet-sample_conditional_iresult_return'></a>
+
 ```cs
 [WolverinePost("/choose/color")]
 public IResult Redirect(GoToColor request)
@@ -225,9 +257,10 @@ public IResult Redirect(GoToColor request)
     }
 }
 ```
-<sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/Wolverine.Http.Tests/DocumentationSamples.cs#L31-L49' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_conditional_iresult_return' title='Start of snippet'>anchor</a></sup>
-<!-- endSnippet -->
 
+<sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/Wolverine.Http.Tests/DocumentationSamples.cs#L31-L49' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_conditional_iresult_return' title='Start of snippet'>anchor</a></sup>
+
+<!-- endSnippet -->
 
 ## Using IoC Services
 
@@ -237,7 +270,6 @@ between the request type argument and what should be coming from the IoC
 container, you can decorate parameters with the `[FromServices]` attribute
 from ASP.Net Core to give Wolverine a hint. Otherwise, Wolverine is asking the underlying
 Lamar container if it knows how to resolve the service from the parameter argument.
-
 
 ## Accessing HttpContext
 
@@ -253,7 +285,9 @@ Simply expose a parameter of any of these types to get either the current
 You can also get at the trace identifier for the current `HttpContext` by a parameter like this:
 
 <!-- snippet: sample_using_trace_identifier -->
+
 <a id='snippet-sample_using_trace_identifier'></a>
+
 ```cs
 [WolverineGet("/http/identifier")]
 public string UseTraceIdentifier(string traceIdentifier)
@@ -261,7 +295,9 @@ public string UseTraceIdentifier(string traceIdentifier)
     return traceIdentifier;
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/HttpContextEndpoints.cs#L35-L43' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_using_trace_identifier' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 ## Customizing Parameter Handling
@@ -270,7 +306,9 @@ There's actually a way to customize how Wolverine handles parameters in HTTP end
 To do so, you'd need to write an implementation of the `IParameterStrategy` interface from Wolverine.Http:
 
 <!-- snippet: sample_IParameterStrategy -->
+
 <a id='snippet-sample_iparameterstrategy'></a>
+
 ```cs
 /// <summary>
 /// Apply custom handling to a Wolverine.Http endpoint/chain based on a parameter within the
@@ -282,14 +320,18 @@ public interface IParameterStrategy
     bool TryMatch(HttpChain chain, IServiceContainer container, ParameterInfo parameter, out Variable? variable);
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/Wolverine.Http/CodeGen/IParameterStrategy.cs#L7-L19' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_iparameterstrategy' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 As an example, let's say that you want any parameter of type `DateTimeOffset` that's named "now" to receive the current
 system time. To do that, we can write this class:
 
 <!-- snippet: sample_NowParameterStrategy -->
+
 <a id='snippet-sample_nowparameterstrategy'></a>
+
 ```cs
 public class NowParameterStrategy : IParameterStrategy
 {
@@ -308,24 +350,32 @@ public class NowParameterStrategy : IParameterStrategy
     }
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/Samples/CustomParameter.cs#L10-L29' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_nowparameterstrategy' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 and register that strategy within our `MapWolverineEndpoints()` set up like so:
 
 <!-- snippet: sample_adding_custom_parameter_handling -->
+
 <a id='snippet-sample_adding_custom_parameter_handling'></a>
+
 ```cs
 // Customizing parameter handling
 opts.AddParameterHandlingStrategy<NowParameterStrategy>();
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/Program.cs#L214-L219' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_adding_custom_parameter_handling' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 And lastly, here's the application within an HTTP endpoint for extra context:
 
 <!-- snippet: sample_http_endpoint_receiving_now -->
+
 <a id='snippet-sample_http_endpoint_receiving_now'></a>
+
 ```cs
 [WolverineGet("/now")]
 public static string GetNow(DateTimeOffset now) // using the custom parameter strategy for "now"
@@ -333,8 +383,7 @@ public static string GetNow(DateTimeOffset now) // using the custom parameter st
     return now.ToString();
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/CustomParameterEndpoint.cs#L7-L15' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_http_endpoint_receiving_now' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
-
-
-
