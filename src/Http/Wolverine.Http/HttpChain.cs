@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Reflection.Metadata;
 using System.Text.Json;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Frames;
@@ -368,16 +367,16 @@ public partial class HttpChain : Chain<HttpChain, ModifyHttpChainAttribute>, ICo
                 _querystringVariables.Add(variable);
             }
 
-            if (hasFromQueryAttribute && ComplexObjectQueryStringValue.CanParse(parameter.ParameterType))
+            if (RouteParameterStrategy.CanParse(parameter.ParameterType))
             {
-                variable = new ComplexObjectQueryStringValue(parameter).Variable;
+                variable = new ParsedQueryStringValue(parameter.ParameterType, key).Variable;
                 variable.Name = key;
                 _querystringVariables.Add(variable);
             }
 
-            if (RouteParameterStrategy.CanParse(parameter.ParameterType))
+            if (hasFromQueryAttribute && ComplexObjectQueryStringValue.CanParse(parameter.ParameterType))
             {
-                variable = new ParsedQueryStringValue(parameter.ParameterType, key).Variable;
+                variable = new ComplexObjectQueryStringValue(parameter).Variable;
                 variable.Name = key;
                 _querystringVariables.Add(variable);
             }

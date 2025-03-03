@@ -42,11 +42,15 @@ public static class QuerystringEndpoints
         return values.OrderBy(x => x).Select(x => x.ToString()).Join(",");
     }
 
+    #region sample_query_string_object
+
     [WolverineGet("/querystring/object")]
     public static DataRequest Object([FromQuery] DataRequest request)
     {
         return request;
     }
+
+    #endregion
 }
 
 public record DataRequest

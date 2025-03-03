@@ -16,7 +16,9 @@ When Wolverine does the runtime matching, it's using the exact parameter name as
 query string key. Here's a quick sample:
 
 <!-- snippet: sample_using_string_value_as_query_string -->
+
 <a id='snippet-sample_using_string_value_as_query_string'></a>
+
 ```cs
 [WolverineGet("/querystring/string")]
 public static string UsingQueryString(string name) // name is from the query string
@@ -24,13 +26,17 @@ public static string UsingQueryString(string name) // name is from the query str
     return name.IsEmpty() ? "Name is missing" : $"Name is {name}";
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/TestEndpoints.cs#L47-L55' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_using_string_value_as_query_string' title='Start of snippet'>anchor</a></sup>
+
 <!-- endSnippet -->
 
 And the corresponding tests:
 
 <!-- snippet: sample_query_string_usage -->
+
 <a id='snippet-sample_query_string_usage'></a>
+
 ```cs
 [Fact]
 public async Task use_string_querystring_hit()
@@ -69,5 +75,19 @@ public async Task use_decimal_querystring_hit()
     body.ReadAsText().ShouldBe("Amount is 42.1");
 }
 ```
+
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/Wolverine.Http.Tests/using_querystring_parameters.cs#L267-L306' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_query_string_usage' title='Start of snippet'>anchor</a></sup>
+
+<!-- endSnippet -->
+
+Query parameters can also be bound from complex types using the `[FromQuery]`
+attribute:
+
+::: tip
+Types bound from query parameters **must not** have nested types or properties.
+Recursive binding is not supported.All property types that would otherwise be
+supported as standalone query parameters are supported.
+:::
+
+<!-- snippet: sample_query_string_object -->
 <!-- endSnippet -->
