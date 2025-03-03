@@ -85,6 +85,12 @@ public string PostNotBody([NotBody] Recorder recorder)
 <sup><a href='https://github.com/JasperFx/wolverine/blob/main/src/Http/WolverineWebApi/AttributeEndpoints.cs#L15-L26' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_using_not_body_attribute' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
+For `GET` endpoints, you can supply a concrete, "not simple" parameter as a JSON
+body by decorating the parameter with the `[FromBody]` attribute:
+
+<!-- snippet: sample_using_from_body_attribute -->
+<!-- endSnippet -->
+
 In terms of the response type, you can use:
 
 | Type                           | Body         | Status Code       | Notes                                                                          |

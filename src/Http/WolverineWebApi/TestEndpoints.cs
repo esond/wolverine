@@ -1,7 +1,8 @@
 using System.Globalization;
-using Marten;
-using Wolverine.Http;
 using JasperFx.Core;
+using Marten;
+using Microsoft.AspNetCore.Mvc;
+using Wolverine.Http;
 
 namespace WolverineWebApi;
 
@@ -94,6 +95,20 @@ public static class TestEndpoints
 
     #endregion
 
+    #region sample_using_from_body_attribute
+
+    [WolverineGet("/question/from-body")]
+    public static ArithmeticResults GetJson([FromBody] Question question)
+    {
+        return new ArithmeticResults
+        {
+            Sum = question.One + question.Two,
+            Product = question.One * question.Two
+        };
+    }
+
+    #endregion
+
     #region sample_simple_wolverine_http_endpoint_async
 
     [WolverinePost("/question2")]
@@ -136,8 +151,6 @@ public static class QuerystringCollectionEndpoints
     {
         return string.Join(",", collection);
     }
-    
-    
 }
 
 public class ArithmeticResults
