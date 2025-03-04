@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Wolverine.Attributes;
 using Wolverine.Codegen;
+using Wolverine.Http.CodeGen;
 
 namespace Wolverine.Http;
 
@@ -266,7 +267,7 @@ public partial class HttpChain
 
     private void fillQuerystringParameters(ApiDescription apiDescription)
     {
-        foreach (var querystringVariable in _querystringVariables)
+        foreach (var querystringVariable in _querystringVariables.Where(v => v.Creator?.GetType() != typeof(CompoundQueryStringValue)))
         {
             var parameterDescription = new ApiParameterDescription
             {

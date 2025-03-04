@@ -47,7 +47,15 @@ public static class QuerystringEndpoints
     [WolverineGet("/querystring/object")]
     public static DataRequest Object([FromQuery] DataRequest request)
     {
-        return request;
+        return new DataRequest
+        {
+            PageNumber = request.PageNumber,
+            PageSize = request.PageSize,
+            Filters = request.Filters,
+            OrderBy = request.OrderBy,
+            SortDirection = request.SortDirection,
+        };
+
     }
 
     #endregion
