@@ -15,7 +15,7 @@ public class from_query_binding : IntegrationContext
     {
         var result = await Host.Scenario(x => x.Get.Url("/api/fromquery1?name=Mahomes"));
         result.ReadAsJson<Query1>().Name.ShouldBe("Mahomes");
-        
+
         var result2 = await Host.Scenario(x => x.Get.Url("/api/fromquery1"));
         result2.ReadAsJson<Query1>().Name.ShouldBeNull();
     }
@@ -25,7 +25,7 @@ public class from_query_binding : IntegrationContext
     {
         var result = await Host.Scenario(x => x.Get.Url("/api/fromquery2?number=15"));
         result.ReadAsJson<Query2>().Number.ShouldBe(15);
-        
+
         var result2 = await Host.Scenario(x => x.Get.Url("/api/fromquery2"));
         result2.ReadAsJson<Query2>().Number.ShouldBe(0);
     }
@@ -36,7 +36,7 @@ public class from_query_binding : IntegrationContext
         var id = Guid.NewGuid();
         var result = await Host.Scenario(x => x.Get.Url("/api/fromquery3?Id=" + id));
         result.ReadAsJson<Query3>().Id.ShouldBe(id);
-        
+
         var result2 = await Host.Scenario(x => x.Get.Url("/api/fromquery3"));
         result2.ReadAsJson<Query3>().Id.ShouldBe(Guid.Empty);
     }
@@ -78,7 +78,7 @@ public class from_query_binding : IntegrationContext
         (await forQuerystring("name=Jones&number=95")).NullableNumber.ShouldBeNull();
         (await forQuerystring("name=Jones&number=95&nullableNumber=33")).NullableNumber.ShouldBe(33);
     }
-    
+
     [Fact]
     public async Task nullable_bool_on_setter()
     {
@@ -86,7 +86,7 @@ public class from_query_binding : IntegrationContext
         (await forQuerystring("name=Jones&number=95&nullableFlag=true")).NullableFlag.Value.ShouldBeTrue();
         (await forQuerystring("name=Jones&number=95&NullableFlag=false")).NullableFlag.Value.ShouldBeFalse();
     }
-    
+
     [Fact]
     public async Task nullable_enum_on_setter()
     {
@@ -98,7 +98,7 @@ public class from_query_binding : IntegrationContext
     public async Task string_array_as_property()
     {
         (await forQuerystring("name=Jones&number=95")).Values.ShouldBeEmpty();
-    
+
         var result = await Scenario(x =>
         {
             x.Get
@@ -107,16 +107,16 @@ public class from_query_binding : IntegrationContext
                 .QueryString("Values", "two")
                 .QueryString("values", "three");
         });
-    
+
         var query = result.ReadAsJson<BigQuery>();
         query.Values.ShouldBe(["one", "two", "three"]);
     }
-    
+
     [Fact]
     public async Task int_array_as_property()
     {
         (await forQuerystring("name=Jones&number=95")).Numbers.ShouldBeNull();
-    
+
         var result = await Scenario(x =>
         {
             x.Get
@@ -125,7 +125,7 @@ public class from_query_binding : IntegrationContext
                 .QueryString("Numbers", "3")
                 .QueryString("Numbers", "4");
         });
-    
+
         var query = result.ReadAsJson<BigQuery>();
         query.Numbers.ShouldBe([1, 3, 4]);
     }
