@@ -99,10 +99,11 @@ public class BigQuery
     public Direction Direction { get; set; }
     public string[] Values { get; set; }
     public int[] Numbers { get; set; }
-    
     public bool Flag { get; set; }
-    
     public int? NullableNumber { get; set; }
     public Direction? NullableDirection { get; set; }
     public bool? NullableFlag { get; set; }
+
+    [FromQuery(Name = "aliased")]
+    public string ValueWithAlias { get; set; }
 }

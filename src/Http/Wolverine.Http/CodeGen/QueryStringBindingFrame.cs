@@ -1,9 +1,11 @@
 using System.Reflection;
+using System.Reflection.Metadata;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Mvc;
 using Wolverine.Runtime;
 
@@ -51,8 +53,15 @@ internal class QueryStringBindingFrame : SyncFrame
         {
             foreach (var propertyInfo in queryType.GetProperties().Where(x => x.CanWrite))
             {
+                var key = propertyInfo.Name;
+
+                if (propertyInfo.TryGetAttribute<FromQueryAttribute>(out var att) && att.Name.IsNotEmpty())
+                {
+                    key = att.Name;
+                }
+
                 var queryStringVariable =
-                    chain.TryFindOrCreateQuerystringValue(propertyInfo.PropertyType, propertyInfo.Name);
+                    chain.TryFindOrCreateQuerystringValue(propertyInfo.PropertyType, propertyInfo.Name, key);
 
                 if (queryStringVariable.Creator is IReadQueryStringFrame frame)
                 {
