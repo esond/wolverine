@@ -105,5 +105,5 @@ public class BigQuery
     public bool? NullableFlag { get; set; }
 
     [FromQuery(Name = "aliased")]
-    public string ValueWithAlias { get; set; }
+    public string? ValueWithAlias { get; set; }
 }
