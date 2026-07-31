@@ -1,4 +1,5 @@
 using JasperFx.CodeGeneration.Frames;
+using JasperFx.CodeGeneration.Model;
 using Marten.Events;
 using Wolverine.Configuration;
 using Wolverine.Marten.Codegen;
@@ -18,12 +19,14 @@ public class CreatedAggregate<T> : IResponseAware where T : class
 {
     public static void ConfigureResponse(IChain chain)
     {
-        var stream = chain.ReturnVariablesOfType<IStartStream>().FirstOrDefault();
-        if (stream == null)
+        var streams = chain.ReturnVariablesOfType<IStartStream>().ToArray();
+        if (streams.Length == 0)
         {
             throw new InvalidOperationException(
                 $"CreatedAggregate<{typeof(T).Name}> cannot be used because Chain {chain} does not also return an {nameof(IStartStream)} value. Return one with MartenOps.StartStream<{typeof(T).Name}>()");
         }
+
+        var stream = streams.Length == 1 ? streams[0] : disambiguate(streams, chain);
 
         // A creation chain has no [AggregateHandler]/[Aggregate] usage to add the Marten
         // transactional frames during attribute processing, and the AutoApplyTransactions
@@ -56,6 +59,25 @@ public class CreatedAggregate<T> : IResponseAware where T : class
         };
 
         chain.UseForResponse(call);
+    }
+
+    private static Variable disambiguate(Variable[] streams, IChain chain)
+    {
+        // Only the MartenOps.StartStream<T>(Guid streamId, ...) overloads declare the
+        // concrete StartStream<T> return type, so type matching is only possible there.
+        // The no-id and string-key overloads declare plain IStartStream.
+        var matching = streams.Where(x =>
+            x.VariableType.IsGenericType &&
+            x.VariableType.GetGenericTypeDefinition() == typeof(StartStream<>) &&
+            x.VariableType.GetGenericArguments()[0] == typeof(T)).ToArray();
+
+        if (matching.Length == 1)
+        {
+            return matching[0];
+        }
+
+        throw new InvalidOperationException(
+            $"CreatedAggregate<{typeof(T).Name}> cannot be used because Chain {chain} returns multiple {nameof(IStartStream)} values and Wolverine cannot determine which one starts the {typeof(T).Name} stream. Declare exactly one of them as StartStream<{typeof(T).Name}> with the MartenOps.StartStream<{typeof(T).Name}>(Guid streamId, ...) overload so it can be matched by type.");
     }
 
     public static ValueTask<T?> FetchAsync(IStartStream stream, IEventStoreOperations events,
