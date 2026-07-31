@@ -282,6 +282,21 @@ public static class MarkItemEndpoint
         );
     }
 
+    // Deliberately not [Transactional]: CreatedAggregate.ConfigureResponse must add the
+    // transactional frames itself so the FetchLatest response frame lands after the commit
+    [WolverinePost("/orders/create5")]
+    public static (CreatedAggregate<Order>, IStartStream) StartOrder5(StartOrder command)
+    {
+        var items = command.Items.Select(x => new Item { Name = x }).ToArray();
+
+        var startStream = MartenOps.StartStream<Order>(new OrderCreated(items));
+
+        return (
+            new CreatedAggregate<Order>(),
+            startStream
+        );
+    }
+
     // GH-3420: {id} has no route constraint and appears nowhere in the method signature -- it is the
     // Order aggregate's identity, which only the Marten aggregate workflow knows about.
     [AggregateHandler]

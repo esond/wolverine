@@ -354,6 +354,22 @@ public class using_aggregate_handler_workflow(AppFixture fixture) : IntegrationC
     }
     
     [Fact]
+    public async Task return_created_aggregate()
+    {
+        var result = await Scenario(x =>
+        {
+            x.Post.Json(new StartOrder(["Socks", "Shoes", "Shirt"])).ToUrl("/orders/create5");
+            x.StatusCodeShouldBe(200);
+        });
+
+        var order = await result.ReadAsJsonAsync<Order>();
+        order.ShouldNotBeNull();
+        order.Id.ShouldNotBe(Guid.Empty);
+        order.Items.Count.ShouldBe(3);
+        order.Version.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task aggregate_id_variable_is_fetchable_from_chain_for_handler_marked_with_AggregateHandler()
     {
         // Guaranteeing that it's warmed up
