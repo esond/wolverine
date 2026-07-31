@@ -70,6 +70,62 @@ internal class ApplyHttpAware : SyncFrame
     }
 }
 
+internal class CreationAwarePolicy : IHttpPolicy
+{
+    public void Apply(IReadOnlyList<HttpChain> chains, GenerationRules rules, IServiceContainer container)
+    {
+        // IHttpAware resource types (CreationResponse et al) already control their own
+        // status code and metadata through HttpAwarePolicy
+        var matching = chains.Where(x =>
+            x.ResourceType != null && !x.ResourceType.CanBeCastTo(typeof(IHttpAware)));
+
+        foreach (var chain in matching)
+        {
+            var marker = chain.Method.Creates.FirstOrDefault(x => x.VariableType.CanBeCastTo(typeof(ICreationAware)));
+            if (marker == null)
+            {
+                continue;
+            }
+
+            var resourceType = chain.ResourceType;
+            chain.Add(builder =>
+            {
+                builder.RemoveStatusCodeResponse(200);
+                builder.Metadata.Add(new WolverineProducesResponseTypeMetadata
+                    { Type = resourceType, StatusCode = 201 });
+            });
+
+            // This will have to run before any kind of resource writing
+            chain.Postprocessors.Insert(0, new ApplyCreationAware(marker));
+        }
+    }
+}
+
+internal class ApplyCreationAware : SyncFrame
+{
+    private readonly Variable _target;
+    private Variable? _httpContext;
+
+    public ApplyCreationAware(Variable target)
+    {
+        _target = target;
+        uses.Add(target);
+    }
+
+    public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
+    {
+        _httpContext = chain.FindVariable(typeof(HttpContext));
+        yield return _httpContext;
+    }
+
+    public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        writer.WriteComment("This response type denotes resource creation");
+        writer.Write($"{nameof(HttpHandler.ApplyCreationAware)}({_target.Usage}, {_httpContext!.Usage});");
+        Next?.GenerateCode(method, writer);
+    }
+}
+
 public static class EndpointBuilderExtensions
 {
     public static EndpointBuilder RemoveStatusCodeResponse(this EndpointBuilder builder, int statusCode)

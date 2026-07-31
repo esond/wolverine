@@ -359,13 +359,34 @@ public class using_aggregate_handler_workflow(AppFixture fixture) : IntegrationC
         var result = await Scenario(x =>
         {
             x.Post.Json(new StartOrder(["Socks", "Shoes", "Shirt"])).ToUrl("/orders/create5");
-            x.StatusCodeShouldBe(200);
+            x.StatusCodeShouldBe(201);
         });
 
         var order = await result.ReadAsJsonAsync<Order>();
         order.ShouldNotBeNull();
         order.Id.ShouldNotBe(Guid.Empty);
         order.Items.Count.ShouldBe(3);
+        order.Version.ShouldBe(1);
+
+        result.Context.Response.Headers.Location.ToString().ShouldBe($"/orders/{order.Id}");
+    }
+
+    [Fact]
+    public async Task return_created_aggregate_with_non_generic_marker()
+    {
+        var id = Guid.NewGuid();
+
+        var result = await Scenario(x =>
+        {
+            x.Post.Json(new StartOrderWithId(id, ["Socks", "Shoes"])).ToUrl("/orders/create6");
+            x.StatusCodeShouldBe(201);
+            x.Header("Location").SingleValueShouldEqual($"/orders/{id}");
+        });
+
+        var order = await result.ReadAsJsonAsync<Order>();
+        order.ShouldNotBeNull();
+        order.Id.ShouldBe(id);
+        order.Items.Count.ShouldBe(2);
         order.Version.ShouldBe(1);
     }
 

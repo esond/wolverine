@@ -292,7 +292,22 @@ public static class MarkItemEndpoint
         var startStream = MartenOps.StartStream<Order>(new OrderCreated(items));
 
         return (
-            new CreatedAggregate<Order>(),
+            new CreatedAggregate<Order>($"/orders/{startStream.StreamId}"),
+            startStream
+        );
+    }
+
+    [WolverinePost("/orders/create6")]
+    public static (CreatedAggregate, StartStream<Order>) StartOrder6(StartOrderWithId command)
+    {
+        var items = command.Items.Select(x => new Item { Name = x }).ToArray();
+
+        // The aggregate type for the non-generic CreatedAggregate is resolved from
+        // the StartStream<Order> return type
+        var startStream = MartenOps.StartStream<Order>(command.Id, new OrderCreated(items));
+
+        return (
+            new CreatedAggregate($"/orders/{command.Id}"),
             startStream
         );
     }

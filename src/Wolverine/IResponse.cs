@@ -88,3 +88,17 @@ public interface IResponseAware : IWolverineReturnType
 {
     static abstract void ConfigureResponse(IChain chain);
 }
+
+/// <summary>
+/// Optional companion to <see cref="IResponseAware"/> for response marker types that denote
+/// the creation of a new resource. When the chain is an HTTP endpoint, Wolverine.Http will
+/// respond with a 201 status code and optionally write the Location response header from
+/// the Url property. Has no effect on message handler chains.
+/// </summary>
+public interface ICreationAware : IWolverineReturnType
+{
+    /// <summary>
+    /// Optional value for the HTTP Location response header on creation
+    /// </summary>
+    string? Url { get; }
+}

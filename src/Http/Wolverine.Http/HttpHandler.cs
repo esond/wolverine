@@ -111,6 +111,18 @@ public abstract class HttpHandler
     {
         if (target is IHttpAware a) a.Apply(context);
     }
+
+    public static void ApplyCreationAware(object target, HttpContext context)
+    {
+        if (target is ICreationAware c)
+        {
+            context.Response.StatusCode = 201;
+            if (c.Url.IsNotEmpty())
+            {
+                context.Response.Headers.Location = c.Url;
+            }
+        }
+    }
     
     private static bool isRequestJson(HttpContext context)
     {

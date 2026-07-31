@@ -128,6 +128,7 @@ public class WolverineHttpOptions
     public WolverineHttpOptions()
     {
         Policies.Add(new HttpAwarePolicy());
+        Policies.Add(new CreationAwarePolicy());
         Policies.Add(new RequestIdPolicy());
         Policies.Add(new UserNamePolicy());
         Policies.Add(new RequiredEntityPolicy());

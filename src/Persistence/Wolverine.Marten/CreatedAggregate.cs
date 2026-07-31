@@ -1,3 +1,4 @@
+using System.Reflection;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
 using Marten.Events;
@@ -12,11 +13,79 @@ namespace Wolverine.Marten;
 /// Use this as a response from a message handler or HTTP endpoint that starts a new
 /// event stream through an <see cref="IStartStream"/> side effect to respond with the
 /// newly created, projected aggregate after the transaction commits. The creation-flow
-/// counterpart to <see cref="UpdatedAggregate"/>.
+/// counterpart to <see cref="UpdatedAggregate"/>. HTTP endpoints respond with a
+/// 201 status code, and optionally the Location response header when the Url is supplied.
+/// The aggregate type is resolved from the accompanying StartStream&lt;T&gt; return value,
+/// so this non-generic version requires one of the MartenOps.StartStream&lt;T&gt;(Guid streamId, ...)
+/// overloads. Use <see cref="CreatedAggregate{T}"/> with the other overloads.
+/// </summary>
+public class CreatedAggregate : IResponseAware, ICreationAware
+{
+    public CreatedAggregate()
+    {
+    }
+
+    /// <param name="url">Value for the HTTP Location response header, e.g. the URL of the newly created resource</param>
+    public CreatedAggregate(string url)
+    {
+        Url = url;
+    }
+
+    public string? Url { get; }
+
+    public static void ConfigureResponse(IChain chain)
+    {
+        var streams = chain.ReturnVariablesOfType<IStartStream>().ToArray();
+        if (streams.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(CreatedAggregate)} cannot be used because Chain {chain} does not also return an {nameof(IStartStream)} value. Return one with MartenOps.StartStream<T>()");
+        }
+
+        if (streams.Length > 1)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(CreatedAggregate)} cannot be used because Chain {chain} returns multiple {nameof(IStartStream)} values. Use the generic CreatedAggregate<T> to tell Wolverine which stream's aggregate is the response.");
+        }
+
+        var stream = streams[0];
+        if (!stream.VariableType.IsGenericType ||
+            stream.VariableType.GetGenericTypeDefinition() != typeof(StartStream<>))
+        {
+            throw new InvalidOperationException(
+                $"{nameof(CreatedAggregate)} cannot determine the aggregate type from the {nameof(IStartStream)} return value of Chain {chain}. Either use one of the MartenOps.StartStream<T>(Guid streamId, ...) overloads that return StartStream<T>, or use the generic CreatedAggregate<T> instead.");
+        }
+
+        var aggregateType = stream.VariableType.GetGenericArguments()[0];
+        var configure = typeof(CreatedAggregate<>).MakeGenericType(aggregateType)
+            .GetMethod(nameof(CreatedAggregate<object>.Configure), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        configure.Invoke(null, [chain, stream]);
+    }
+}
+
+/// <summary>
+/// Use this as a response from a message handler or HTTP endpoint that starts a new
+/// event stream through an <see cref="IStartStream"/> side effect to respond with the
+/// newly created, projected aggregate after the transaction commits. The creation-flow
+/// counterpart to <see cref="UpdatedAggregate"/>. HTTP endpoints respond with a
+/// 201 status code, and optionally the Location response header when the Url is supplied.
 /// </summary>
 /// <typeparam name="T">The aggregate type started by the accompanying <see cref="IStartStream"/> return value</typeparam>
-public class CreatedAggregate<T> : IResponseAware where T : class
+public class CreatedAggregate<T> : IResponseAware, ICreationAware where T : class
 {
+    public CreatedAggregate()
+    {
+    }
+
+    /// <param name="url">Value for the HTTP Location response header, e.g. the URL of the newly created resource</param>
+    public CreatedAggregate(string url)
+    {
+        Url = url;
+    }
+
+    public string? Url { get; }
+
     public static void ConfigureResponse(IChain chain)
     {
         var streams = chain.ReturnVariablesOfType<IStartStream>().ToArray();
@@ -28,6 +97,11 @@ public class CreatedAggregate<T> : IResponseAware where T : class
 
         var stream = streams.Length == 1 ? streams[0] : disambiguate(streams, chain);
 
+        Configure(chain, stream);
+    }
+
+    internal static void Configure(IChain chain, Variable stream)
+    {
         // A creation chain has no [AggregateHandler]/[Aggregate] usage to add the Marten
         // transactional frames during attribute processing, and the AutoApplyTransactions
         // policy runs after IResponseAware configuration — which would leave the FetchLatest
