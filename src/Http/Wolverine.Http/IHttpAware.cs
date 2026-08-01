@@ -88,7 +88,12 @@ internal class CreationAwarePolicy : IHttpPolicy
             }
 
             var resourceType = chain.ResourceType;
-            chain.Add(builder =>
+
+            // Finally() rather than Add(): BuildEndpoint calls establishResourceTypeMetadata first,
+            // which appends Wolverine's built-in Produces(200) convention to the same list this
+            // policy already registered into. A conventional Add() would run before that append and
+            // remove nothing, leaving the endpoint advertising both 200 and 201.
+            chain.Finally(builder =>
             {
                 builder.RemoveStatusCodeResponse(200);
                 builder.Metadata.Add(new WolverineProducesResponseTypeMetadata

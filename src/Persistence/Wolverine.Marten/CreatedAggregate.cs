@@ -1,11 +1,12 @@
 using System.Reflection;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
-using Marten.Events;
+using Marten;
 using Wolverine.Configuration;
 using Wolverine.Marten.Codegen;
 using Wolverine.Marten.Persistence.Sagas;
 using Wolverine.Persistence;
+using Wolverine.Persistence.Sagas;
 
 namespace Wolverine.Marten;
 
@@ -95,32 +96,36 @@ public class CreatedAggregate<T> : IResponseAware, ICreationAware where T : clas
                 $"CreatedAggregate<{typeof(T).Name}> cannot be used because Chain {chain} does not also return an {nameof(IStartStream)} value. Return one with MartenOps.StartStream<{typeof(T).Name}>()");
         }
 
-        var stream = streams.Length == 1 ? streams[0] : disambiguate(streams, chain);
+        var stream = streams.Length == 1 ? assertMatchingType(streams[0], chain) : disambiguate(streams, chain);
 
         Configure(chain, stream);
     }
 
     internal static void Configure(IChain chain, Variable stream)
     {
-        // A creation chain has no [AggregateHandler]/[Aggregate] usage to add the Marten
-        // transactional frames during attribute processing, and the AutoApplyTransactions
-        // policy runs after IResponseAware configuration — which would leave the FetchLatest
-        // frame *before* the SaveChangesAsync postprocessor. Add the transactional frames
-        // here (idempotently, mirroring AggregateHandling.Apply) so the response fetch
+        // MartenOpPolicy already routes message handler chains that return a single IMartenOp
+        // through MartenPersistenceFrameProvider.ApplyTransactionSupport, but Wolverine.Http has
+        // no equivalent policy for endpoint chains, and the AutoApplyTransactions policy runs
+        // after IResponseAware configuration — which would leave the FetchLatest frame *before*
+        // the SaveChangesAsync postprocessor. Add the transactional frames here (idempotently,
+        // mirroring ApplyTransactionSupport, SagaChain guard included) so the response fetch
         // lands after the commit.
         if (!chain.Middleware.OfType<CreateDocumentSessionFrame>().Any())
         {
             chain.Middleware.Add(new CreateDocumentSessionFrame(chain));
         }
 
-        if (!chain.Postprocessors.OfType<DocumentSessionSaveChanges>().Any())
+        if (chain is not SagaChain)
         {
-            chain.Postprocessors.Add(new DocumentSessionSaveChanges());
-        }
+            if (!chain.Postprocessors.OfType<DocumentSessionSaveChanges>().Any())
+            {
+                chain.Postprocessors.Add(new DocumentSessionSaveChanges());
+            }
 
-        if (!chain.Postprocessors.OfType<FlushOutgoingMessages>().Any())
-        {
-            chain.Postprocessors.Add(new FlushOutgoingMessages());
+            if (!chain.Postprocessors.OfType<FlushOutgoingMessages>().Any())
+            {
+                chain.Postprocessors.Add(new FlushOutgoingMessages());
+            }
         }
 
         var call = new MethodCall(typeof(CreatedAggregate<T>),
@@ -133,6 +138,38 @@ public class CreatedAggregate<T> : IResponseAware, ICreationAware where T : clas
         };
 
         chain.UseForResponse(call);
+
+        // HandlerChain.UseForResponse appends the fetched aggregate's CaptureCascadingMessages
+        // after the frames above, so an already-present FlushOutgoingMessages has to be moved
+        // back to the end. Otherwise the cascaded response is enqueued after the outbox already
+        // flushed and MultiFlushMode.OnlyOnce silently drops it (GH-3499).
+        var flush = chain.Postprocessors.OfType<FlushOutgoingMessages>().FirstOrDefault();
+        if (flush != null)
+        {
+            chain.Postprocessors.Remove(flush);
+            chain.Postprocessors.Add(flush);
+        }
+    }
+
+    private static Variable assertMatchingType(Variable stream, IChain chain)
+    {
+        // Only the MartenOps.StartStream<T>(Guid streamId, ...) overloads declare the concrete
+        // StartStream<T> return type. The no-id and string-key overloads declare plain
+        // IStartStream, so there is nothing to match against for those.
+        if (!stream.VariableType.IsGenericType ||
+            stream.VariableType.GetGenericTypeDefinition() != typeof(StartStream<>))
+        {
+            return stream;
+        }
+
+        var aggregateType = stream.VariableType.GetGenericArguments()[0];
+        if (aggregateType != typeof(T))
+        {
+            throw new InvalidOperationException(
+                $"CreatedAggregate<{typeof(T).Name}> cannot be used because Chain {chain} returns StartStream<{aggregateType.Name}>, which starts a different aggregate type. Use CreatedAggregate<{aggregateType.Name}> instead.");
+        }
+
+        return stream;
     }
 
     private static Variable disambiguate(Variable[] streams, IChain chain)
@@ -154,9 +191,23 @@ public class CreatedAggregate<T> : IResponseAware, ICreationAware where T : clas
             $"CreatedAggregate<{typeof(T).Name}> cannot be used because Chain {chain} returns multiple {nameof(IStartStream)} values and Wolverine cannot determine which one starts the {typeof(T).Name} stream. Declare exactly one of them as StartStream<{typeof(T).Name}> with the MartenOps.StartStream<{typeof(T).Name}>(Guid streamId, ...) overload so it can be matched by type.");
     }
 
-    public static ValueTask<T?> FetchAsync(IStartStream stream, IEventStoreOperations events,
+    public static ValueTask<T?> FetchAsync(IStartStream? stream, IDocumentSession session,
         CancellationToken token)
     {
+        // Returning a null side effect from a conditional branch is a supported pattern -
+        // Wolverine's SideEffectPolicy guards the generated Execute() call - so the response
+        // fetch has to tolerate it too.
+        if (stream == null)
+        {
+            return default;
+        }
+
+        // StartStream<T>.Execute commits through session.ForTenant() when a tenant id was
+        // supplied, so the read has to be scoped the same way or it queries the ambient
+        // tenant's event store instead.
+        var tenantId = (stream as StartStream<T>)?.TenantId;
+        var events = tenantId != null ? session.ForTenant(tenantId).Events : session.Events;
+
         return stream.StreamId != Guid.Empty
             ? events.FetchLatest<T>(stream.StreamId, token)
             : events.FetchLatest<T>(stream.StreamKey, token);

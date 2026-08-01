@@ -1,6 +1,8 @@
 using IntegrationTests;
 using JasperFx.Events;
+using JasperFx.Events.Projections;
 using Marten;
+using JasperFx.MultiTenancy;
 using Marten.Events;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -9,6 +11,9 @@ using MartenTests.AggregateHandlerWorkflow;
 using Shouldly;
 using Wolverine;
 using Wolverine.Marten;
+using Wolverine.Persistence;
+using Wolverine.Runtime;
+using Wolverine.Runtime.Handlers;
 using Wolverine.Tracking;
 
 namespace MartenTests;
@@ -110,6 +115,54 @@ public class handler_actions_with_returned_StartStream : PostgresqlContext, IAsy
 
         ex.Message.ShouldContain("does not also return an IStartStream value");
     }
+
+    [Fact]
+    public async Task created_aggregate_with_mismatched_stream_type_complains()
+    {
+        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            using var host = await Host.CreateDefaultBuilder()
+                .UseWolverine(opts =>
+                {
+                    opts.Discovery.DisableConventionalDiscovery()
+                        .IncludeType(typeof(MismatchedStreamTypeHandler));
+                    opts.Durability.Mode = DurabilityMode.Solo;
+                    opts.Services
+                        .AddMarten(Servers.PostgresConnectionString)
+                        .IntegrateWithWolverine();
+                }).StartAsync();
+
+            await host.InvokeMessageAndWaitAsync(new MismatchedStartMessage(Guid.NewGuid()));
+        });
+
+        ex.Message.ShouldContain("starts a different aggregate type");
+    }
+
+    // The cascaded response has to be enqueued BEFORE the outbox flush. HandlerChain.UseForResponse
+    // appends CaptureCascadingMessages to the postprocessors, so a FlushOutgoingMessages that
+    // MartenOpPolicy already added has to be moved back to the end. Otherwise the reply is enqueued
+    // after the flush already ran and MultiFlushMode.OnlyOnce drops it (GH-3499). Asserted at the
+    // composition surface: InvokeMessageAndWaitAsync sets DoNotCascadeResponse, so a runtime test
+    // never exercises the enqueue path at all.
+    [Fact]
+    public async Task flush_outgoing_messages_runs_after_the_cascading_response_capture()
+    {
+        // Postprocessors are only assembled when the chain compiles, so drive one message through first.
+        await _host.InvokeMessageAndWaitAsync<LetterAggregate>(new StartLetterMessage(1, 1));
+
+        var chain = _host.Services.GetRequiredService<IWolverineRuntime>()
+            .Options.HandlerGraph.ChainFor<StartLetterMessage>();
+
+        chain.ShouldNotBeNull();
+
+        var postprocessors = chain.Postprocessors;
+        var flushAt = postprocessors.FindIndex(x => x is FlushOutgoingMessages);
+        var captureAt = postprocessors.FindIndex(x => x is CaptureCascadingMessages);
+
+        flushAt.ShouldBeGreaterThan(-1);
+        captureAt.ShouldBeGreaterThan(-1);
+        flushAt.ShouldBeGreaterThan(captureAt);
+    }
 }
 
 public class start_stream_by_string_from_return_value : PostgresqlContext, IAsyncLifetime
@@ -178,12 +231,66 @@ public class start_stream_by_string_from_return_value : PostgresqlContext, IAsyn
     }
 }
 
+// StartStream<T>.Execute commits through session.ForTenant(TenantId), so the CreatedAggregate response
+// fetch has to be scoped the same way. Reading through the ambient session instead queries the wrong
+// tenant's event store: normally a 404 for a stream that was created, and a cross-tenant read when the
+// same stream id happens to exist under the ambient tenant.
+public class created_aggregate_with_tenanted_stream : PostgresqlContext, IAsyncLifetime
+{
+    private IHost _host = null!;
+
+    public async ValueTask InitializeAsync()
+    {
+        _host = await Host.CreateDefaultBuilder()
+            .UseWolverine(opts =>
+            {
+                opts.Discovery.DisableConventionalDiscovery().IncludeType(typeof(TenantedStartStreamHandler));
+                opts.Durability.Mode = DurabilityMode.Solo;
+                opts.Services
+                    .AddMarten(m =>
+                    {
+                        m.Connection(Servers.PostgresConnectionString);
+                        m.DatabaseSchemaName = "created_aggregate_tenancy";
+                        m.Events.TenancyStyle = TenancyStyle.Conjoined;
+                        m.Policies.AllDocumentsAreMultiTenanted();
+                        m.Projections.Snapshot<LetterAggregate>(SnapshotLifecycle.Inline);
+                    })
+                    .IntegrateWithWolverine();
+
+                opts.Policies.AutoApplyTransactions();
+
+                opts.Services.AddResourceSetupOnStartup();
+            }).StartAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _host.StopAsync();
+        _host.Dispose();
+    }
+
+    [Fact]
+    public async Task response_is_fetched_from_the_stream_own_tenant()
+    {
+        var id = Guid.NewGuid();
+
+        var (_, created) =
+            await _host.InvokeMessageAndWaitAsync<LetterAggregate>(new StartTenantedLetterMessage(id, "acme"));
+
+        created.ShouldNotBeNull();
+        created.Id.ShouldBe(id);
+        created.ACount.ShouldBe(1);
+    }
+}
+
 public record StartStreamMessage(Guid Id);
+public record StartTenantedLetterMessage(Guid Id, string TenantId);
 public record StartStreamMessage2(string Id);
 public record StartLetterMessage(int A, int B);
 public record StartTwoStreamsMessage(Guid LetterId, Guid DocumentId);
 public record StartLetterBookMessage(string Id);
 public record InvalidStartMessage;
+public record MismatchedStartMessage(Guid Id);
 
 public class LetterBook
 {
@@ -243,4 +350,26 @@ public static class StartStreamMessageHandler
 public static class MissingStartStreamHandler
 {
     public static CreatedAggregate<LetterAggregate> Handle(InvalidStartMessage message) => new();
+}
+
+public static class TenantedStartStreamHandler
+{
+    public static (CreatedAggregate<LetterAggregate>, StartStream<LetterAggregate>) Handle(
+        StartTenantedLetterMessage message)
+    {
+        return (new CreatedAggregate<LetterAggregate>(),
+            MartenOps.StartStream<LetterAggregate>(message.Id, message.TenantId, new LetterStarted(), new AEvent()));
+    }
+}
+
+public static class MismatchedStreamTypeHandler
+{
+    // The marker names LetterAggregate but the only stream starts a NamedDocument. Wolverine has to
+    // catch that at codegen time rather than project one aggregate's events into the other.
+    public static (CreatedAggregate<LetterAggregate>, StartStream<NamedDocument>) Handle(
+        MismatchedStartMessage message)
+    {
+        return (new CreatedAggregate<LetterAggregate>(),
+            MartenOps.StartStream<NamedDocument>(message.Id, new AEvent()));
+    }
 }

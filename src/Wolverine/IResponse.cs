@@ -95,7 +95,7 @@ public interface IResponseAware : IWolverineReturnType
 /// respond with a 201 status code and optionally write the Location response header from
 /// the Url property. Has no effect on message handler chains.
 /// </summary>
-public interface ICreationAware : IWolverineReturnType
+public interface ICreationAware
 {
     /// <summary>
     /// Optional value for the HTTP Location response header on creation

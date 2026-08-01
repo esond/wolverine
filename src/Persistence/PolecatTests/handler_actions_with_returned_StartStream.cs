@@ -86,11 +86,71 @@ public class handler_actions_with_returned_StartStream : IAsyncLifetime
         created.ACount.ShouldBe(1);
         created.BCount.ShouldBe(1);
     }
+
+    [Fact]
+    public async Task created_aggregate_disambiguates_by_stream_type()
+    {
+        var letterId = Guid.NewGuid();
+        var documentId = Guid.NewGuid();
+
+        var (_, created) =
+            await _host.InvokeMessageAndWaitAsync<LetterAggregate>(new PcStartTwoStreamsMessage(letterId, documentId));
+
+        created.ShouldNotBeNull();
+        created.Id.ShouldBe(letterId);
+        created.ACount.ShouldBe(1);
+
+        await using var session = _store.LightweightSession();
+        var events = await session.Events.FetchStreamAsync(documentId, token: TestContext.Current.CancellationToken);
+        events.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task created_aggregate_with_no_start_stream_complains()
+    {
+        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            using var host = await buildIsolatedHostAsync(typeof(PcMissingStartStreamHandler));
+            await host.InvokeMessageAndWaitAsync(new PcInvalidStartMessage());
+        });
+
+        ex.Message.ShouldContain("does not also return an IStartStream value");
+    }
+
+    [Fact]
+    public async Task created_aggregate_with_mismatched_stream_type_complains()
+    {
+        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            using var host = await buildIsolatedHostAsync(typeof(PcMismatchedStreamTypeHandler));
+            await host.InvokeMessageAndWaitAsync(new PcMismatchedStartMessage(Guid.NewGuid()));
+        });
+
+        ex.Message.ShouldContain("starts a different aggregate type");
+    }
+
+    private static Task<IHost> buildIsolatedHostAsync(Type handlerType)
+    {
+        return Host.CreateDefaultBuilder()
+            .UseWolverine(opts =>
+            {
+                opts.Discovery.DisableConventionalDiscovery().IncludeType(handlerType);
+                opts.Services.AddPolecat(m =>
+                    {
+                        m.ConnectionString = Servers.SqlServerConnectionString;
+                        m.DatabaseSchemaName = "start_stream";
+                    })
+                    .IntegrateWithWolverine();
+            }).StartAsync();
+    }
 }
 
 public record PcStartStreamMessage(Guid Id);
 public record PcStartLetterMessage(int A, int B);
 public record PcStartLetterWithIdMessage(Guid Id);
+public record PcStartTwoStreamsMessage(Guid LetterId, Guid DocumentId);
+public record PcInvalidStartMessage;
+public record PcMismatchedStartMessage(Guid Id);
 
 public static class PcStartStreamMessageHandler
 {
@@ -119,5 +179,32 @@ public static class PcStartStreamMessageHandler
     {
         return (new CreatedAggregate(),
             PolecatOps.StartStream<LetterAggregate>(message.Id, new LetterStarted(), new AEvent(), new BEvent()));
+    }
+
+    public static (CreatedAggregate<LetterAggregate>, StartStream<LetterAggregate>, StartStream<PcNamedDocument>) Handle(
+        PcStartTwoStreamsMessage message)
+    {
+        return (
+            new CreatedAggregate<LetterAggregate>(),
+            PolecatOps.StartStream<LetterAggregate>(message.LetterId, new LetterStarted(), new AEvent()),
+            PolecatOps.StartStream<PcNamedDocument>(message.DocumentId, new AEvent())
+        );
+    }
+}
+
+public static class PcMissingStartStreamHandler
+{
+    public static CreatedAggregate<LetterAggregate> Handle(PcInvalidStartMessage message) => new();
+}
+
+public static class PcMismatchedStreamTypeHandler
+{
+    // The marker names LetterAggregate but the only stream starts a PcNamedDocument. Wolverine
+    // has to catch that at codegen time rather than project one aggregate's events into the other.
+    public static (CreatedAggregate<LetterAggregate>, StartStream<PcNamedDocument>) Handle(
+        PcMismatchedStartMessage message)
+    {
+        return (new CreatedAggregate<LetterAggregate>(),
+            PolecatOps.StartStream<PcNamedDocument>(message.Id, new AEvent()));
     }
 }
