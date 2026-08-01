@@ -34,7 +34,10 @@ internal class HttpAwarePolicy : IHttpPolicy
             var resource = chain.Method.Creates.FirstOrDefault(x => x.VariableType == chain.ResourceType);
             if (resource == null)
             {
-                return;
+                // continue, not return: a chain whose resource is exposed through a derived or
+                // interface variable has no exact type match here, and abandoning the loop would
+                // silently drop the 201/202 handling from every later chain in the list.
+                continue;
             }
 
             var apply = new ApplyHttpAware(resource);
@@ -45,14 +48,21 @@ internal class HttpAwarePolicy : IHttpPolicy
     }
 }
 
-internal class ApplyHttpAware : SyncFrame
+// Shared shape for the postprocessor frames that hand a response marker to an HttpHandler helper
+// alongside the HttpContext. The subclasses differ only in which helper they call and what comment
+// they emit, so the HttpContext lookup lives here and stays in one place.
+internal abstract class ApplyResponseMarkerFrame : SyncFrame
 {
     private readonly Variable _target;
+    private readonly string _comment;
+    private readonly string _methodName;
     private Variable? _httpContext;
 
-    public ApplyHttpAware(Variable target)
+    protected ApplyResponseMarkerFrame(Variable target, string comment, string methodName)
     {
         _target = target;
+        _comment = comment;
+        _methodName = methodName;
         uses.Add(target);
     }
 
@@ -64,9 +74,18 @@ internal class ApplyHttpAware : SyncFrame
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
-        writer.WriteComment("This response type customizes the HTTP response");
-        writer.Write($"{nameof(HttpHandler.ApplyHttpAware)}({_target.Usage}, {_httpContext!.Usage});");
+        writer.WriteComment(_comment);
+        writer.Write($"{_methodName}({_target.Usage}, {_httpContext!.Usage});");
         Next?.GenerateCode(method, writer);
+    }
+}
+
+internal class ApplyHttpAware : ApplyResponseMarkerFrame
+{
+    public ApplyHttpAware(Variable target) : base(target,
+        "This response type customizes the HTTP response",
+        nameof(HttpHandler.ApplyHttpAware))
+    {
     }
 }
 
@@ -106,28 +125,12 @@ internal class CreationAwarePolicy : IHttpPolicy
     }
 }
 
-internal class ApplyCreationAware : SyncFrame
+internal class ApplyCreationAware : ApplyResponseMarkerFrame
 {
-    private readonly Variable _target;
-    private Variable? _httpContext;
-
-    public ApplyCreationAware(Variable target)
+    public ApplyCreationAware(Variable target) : base(target,
+        "This response type denotes resource creation",
+        nameof(HttpHandler.ApplyCreationAware))
     {
-        _target = target;
-        uses.Add(target);
-    }
-
-    public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
-    {
-        _httpContext = chain.FindVariable(typeof(HttpContext));
-        yield return _httpContext;
-    }
-
-    public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
-    {
-        writer.WriteComment("This response type denotes resource creation");
-        writer.Write($"{nameof(HttpHandler.ApplyCreationAware)}({_target.Usage}, {_httpContext!.Usage});");
-        Next?.GenerateCode(method, writer);
     }
 }
 
