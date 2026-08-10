@@ -161,13 +161,13 @@ public static class PolecatOps
         return new StartStream<T>(streamId, events);
     }
 
-    public static IStartStream StartStream<T>(params object[] events) where T : class
+    public static StartStream<T> StartStream<T>(params object[] events) where T : class
     {
         var streamId = CombGuidIdGeneration.NewGuid();
         return new StartStream<T>(streamId, events);
     }
 
-    public static IStartStream StartStream<T>(string streamKey, params object[] events) where T : class
+    public static StartStream<T> StartStream<T>(string streamKey, params object[] events) where T : class
     {
         return new StartStream<T>(streamKey, events);
     }
@@ -295,7 +295,7 @@ public static class PolecatOps
     /// <summary>
     /// Return a side effect of starting a new event stream with a string key, scoped to a specific tenant
     /// </summary>
-    public static IStartStream StartStream<T>(string streamKey, string tenantId, params object[] events) where T : class
+    public static StartStream<T> StartStream<T>(string streamKey, string tenantId, params object[] events) where T : class
     {
         if (tenantId == null) throw new ArgumentNullException(nameof(tenantId));
         return new StartStream<T>(streamKey, events) { TenantId = tenantId };

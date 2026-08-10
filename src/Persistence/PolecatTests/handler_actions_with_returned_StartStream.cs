@@ -74,7 +74,7 @@ public class handler_actions_with_returned_StartStream : IAsyncLifetime
     }
 
     [Fact]
-    public async Task using_non_generic_created_aggregate_as_response()
+    public async Task using_created_aggregate_with_explicit_stream_id()
     {
         var id = Guid.NewGuid();
 
@@ -87,8 +87,11 @@ public class handler_actions_with_returned_StartStream : IAsyncLifetime
         created.BCount.ShouldBe(1);
     }
 
+    // The marker no longer occupies a tuple slot for its own stream, but additional stream side
+    // effects can still ride along in the tuple. Those run through the ordinary return-action
+    // path while the marker's own stream runs through the postprocessors - both have to persist.
     [Fact]
-    public async Task created_aggregate_disambiguates_by_stream_type()
+    public async Task created_aggregate_composes_with_an_additional_stream_side_effect()
     {
         var letterId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
@@ -105,52 +108,12 @@ public class handler_actions_with_returned_StartStream : IAsyncLifetime
         events.Count.ShouldBe(1);
     }
 
-    [Fact]
-    public async Task created_aggregate_with_no_start_stream_complains()
-    {
-        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
-        {
-            using var host = await buildIsolatedHostAsync(typeof(PcMissingStartStreamHandler));
-            await host.InvokeMessageAndWaitAsync(new PcInvalidStartMessage());
-        });
-
-        ex.Message.ShouldContain("does not also return an IStartStream value");
-    }
-
-    [Fact]
-    public async Task created_aggregate_with_mismatched_stream_type_complains()
-    {
-        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
-        {
-            using var host = await buildIsolatedHostAsync(typeof(PcMismatchedStreamTypeHandler));
-            await host.InvokeMessageAndWaitAsync(new PcMismatchedStartMessage(Guid.NewGuid()));
-        });
-
-        ex.Message.ShouldContain("starts a different aggregate type");
-    }
-
-    private static Task<IHost> buildIsolatedHostAsync(Type handlerType)
-    {
-        return Host.CreateDefaultBuilder()
-            .UseWolverine(opts =>
-            {
-                opts.Discovery.DisableConventionalDiscovery().IncludeType(handlerType);
-                opts.Services.AddPolecat(m =>
-                    {
-                        m.ConnectionString = Servers.SqlServerConnectionString;
-                        m.DatabaseSchemaName = "start_stream";
-                    })
-                    .IntegrateWithWolverine();
-            }).StartAsync();
-    }
 }
 
 public record PcStartStreamMessage(Guid Id);
 public record PcStartLetterMessage(int A, int B);
 public record PcStartLetterWithIdMessage(Guid Id);
 public record PcStartTwoStreamsMessage(Guid LetterId, Guid DocumentId);
-public record PcInvalidStartMessage;
-public record PcMismatchedStartMessage(Guid Id);
 
 public static class PcStartStreamMessageHandler
 {
@@ -159,7 +122,7 @@ public static class PcStartStreamMessageHandler
         return PolecatOps.StartStream<PcNamedDocument>(message.Id, new AEvent(), new BEvent());
     }
 
-    public static (CreatedAggregate<LetterAggregate>, IStartStream) Handle(PcStartLetterMessage message)
+    public static CreatedAggregate<LetterAggregate> Handle(PcStartLetterMessage message)
     {
         var events = new List<object> { new LetterStarted() };
         for (var i = 0; i < message.A; i++)
@@ -172,39 +135,22 @@ public static class PcStartStreamMessageHandler
             events.Add(new BEvent());
         }
 
-        return (new CreatedAggregate<LetterAggregate>(), PolecatOps.StartStream<LetterAggregate>(events.ToArray()));
+        return new CreatedAggregate<LetterAggregate>(PolecatOps.StartStream<LetterAggregate>(events.ToArray()));
     }
 
-    public static (CreatedAggregate, StartStream<LetterAggregate>) Handle(PcStartLetterWithIdMessage message)
+    public static CreatedAggregate<LetterAggregate> Handle(PcStartLetterWithIdMessage message)
     {
-        return (new CreatedAggregate(),
+        return new CreatedAggregate<LetterAggregate>(
             PolecatOps.StartStream<LetterAggregate>(message.Id, new LetterStarted(), new AEvent(), new BEvent()));
     }
 
-    public static (CreatedAggregate<LetterAggregate>, StartStream<LetterAggregate>, StartStream<PcNamedDocument>) Handle(
+    public static (CreatedAggregate<LetterAggregate>, StartStream<PcNamedDocument>) Handle(
         PcStartTwoStreamsMessage message)
     {
         return (
-            new CreatedAggregate<LetterAggregate>(),
-            PolecatOps.StartStream<LetterAggregate>(message.LetterId, new LetterStarted(), new AEvent()),
+            new CreatedAggregate<LetterAggregate>(
+                PolecatOps.StartStream<LetterAggregate>(message.LetterId, new LetterStarted(), new AEvent())),
             PolecatOps.StartStream<PcNamedDocument>(message.DocumentId, new AEvent())
         );
-    }
-}
-
-public static class PcMissingStartStreamHandler
-{
-    public static CreatedAggregate<LetterAggregate> Handle(PcInvalidStartMessage message) => new();
-}
-
-public static class PcMismatchedStreamTypeHandler
-{
-    // The marker names LetterAggregate but the only stream starts a PcNamedDocument. Wolverine
-    // has to catch that at codegen time rather than project one aggregate's events into the other.
-    public static (CreatedAggregate<LetterAggregate>, StartStream<PcNamedDocument>) Handle(
-        PcMismatchedStartMessage message)
-    {
-        return (new CreatedAggregate<LetterAggregate>(),
-            PolecatOps.StartStream<PcNamedDocument>(message.Id, new AEvent()));
     }
 }

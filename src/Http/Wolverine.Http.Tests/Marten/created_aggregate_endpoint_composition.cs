@@ -14,12 +14,10 @@ using Xunit;
 
 namespace Wolverine.Http.Tests.Marten;
 
-// The CreatedAggregate error paths and its OpenAPI metadata only run through HttpChain compilation,
-// so none of them are reachable from the MartenTests message-handler suite. ConfigureResponse runs in
-// the HttpChain constructor, i.e. during MapWolverineEndpoints, so an invalid endpoint fails host
-// startup rather than a request. Each endpoint therefore gets its own host, and all four carry
-// [WolverineIgnore] so no other host in this assembly picks the invalid ones up - they are re-included
-// one at a time through CustomizeHttpEndpointDiscovery.
+// The CreatedAggregate OpenAPI metadata and its HTTP-chain frame composition only run through
+// HttpChain compilation, so neither is reachable from the MartenTests message-handler suite.
+// The endpoint carries [WolverineIgnore] so no other host in this assembly picks it up - it is
+// re-included through CustomizeHttpEndpointDiscovery.
 public class created_aggregate_endpoint_composition
 {
     private static Task<IAlbaHost> buildHostAsync(Type endpointType)
@@ -53,39 +51,6 @@ public class created_aggregate_endpoint_composition
             })));
     }
 
-    [Fact]
-    public async Task created_aggregate_with_no_start_stream_complains()
-    {
-        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
-        {
-            await using var host = await buildHostAsync(typeof(MissingStartStreamEndpoint));
-        });
-
-        ex.Message.ShouldContain("does not also return an IStartStream value");
-    }
-
-    [Fact]
-    public async Task created_aggregate_with_mismatched_stream_type_complains()
-    {
-        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
-        {
-            await using var host = await buildHostAsync(typeof(MismatchedStreamTypeEndpoint));
-        });
-
-        ex.Message.ShouldContain("starts a different aggregate type");
-    }
-
-    [Fact]
-    public async Task created_aggregate_with_ambiguous_streams_complains()
-    {
-        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
-        {
-            await using var host = await buildHostAsync(typeof(AmbiguousStreamsEndpoint));
-        });
-
-        ex.Message.ShouldContain("cannot determine which one starts");
-    }
-
     // CreationAwarePolicy has to register its metadata mutation with Finally() rather than Add().
     // BuildEndpoint runs establishResourceTypeMetadata first, and that appends Wolverine's built-in
     // Produces(200) to the very list the policy registered into - so an Add() convention runs before
@@ -107,6 +72,35 @@ public class created_aggregate_endpoint_composition
         statusCodes.ShouldContain(201);
         statusCodes.ShouldNotContain(200);
     }
+
+    // Guards the load-bearing frame placement in CreatedAggregate<T>.ConfigureResponse:
+    // HttpChain.Codegen emits return actions only for Method.Creates.Skip(1), and the marker is
+    // the single return value, i.e. Creates[0]. If the stream-start were ever moved from the
+    // postprocessors onto the marker's return action it would still pass every message-handler
+    // test and silently stop persisting on HTTP endpoints - exactly what this test would catch.
+    [Fact]
+    public async Task http_chain_persists_the_stream_and_returns_the_aggregate()
+    {
+        await using var host = await buildHostAsync(typeof(ValidCreatedAggregateEndpoint));
+
+        var id = Guid.NewGuid();
+
+        var result = await host.Scenario(x =>
+        {
+            x.Post.Json(new StartCreatedAggregate(id)).ToUrl("/created-aggregate/valid");
+            x.StatusCodeShouldBe(201);
+            x.Header("Location").SingleValueShouldEqual($"/created-aggregate/{id}");
+        });
+
+        var aggregate = await result.ReadAsJsonAsync<CreatedAggregateTarget>();
+        aggregate.ShouldNotBeNull();
+        aggregate.Id.ShouldBe(id);
+        aggregate.Count.ShouldBe(1);
+
+        await using var session = host.Services.GetRequiredService<IDocumentStore>().LightweightSession();
+        var events = await session.Events.FetchStreamAsync(id, token: TestContext.Current.CancellationToken);
+        events.Count.ShouldBe(1);
+    }
 }
 
 public class CreatedAggregateTarget
@@ -117,11 +111,6 @@ public class CreatedAggregateTarget
     public void Apply(CreatedAggregateCounted _) => Count++;
 }
 
-public class OtherAggregateTarget
-{
-    public Guid Id { get; set; }
-}
-
 public record CreatedAggregateCounted;
 
 public record StartCreatedAggregate(Guid Id);
@@ -130,45 +119,10 @@ public record StartCreatedAggregate(Guid Id);
 public static class ValidCreatedAggregateEndpoint
 {
     [WolverinePost("/created-aggregate/valid")]
-    public static (CreatedAggregate<CreatedAggregateTarget>, StartStream<CreatedAggregateTarget>) Post(
-        StartCreatedAggregate command)
+    public static CreatedAggregate<CreatedAggregateTarget> Post(StartCreatedAggregate command)
     {
-        return (new CreatedAggregate<CreatedAggregateTarget>($"/created-aggregate/{command.Id}"),
-            MartenOps.StartStream<CreatedAggregateTarget>(command.Id, new CreatedAggregateCounted()));
-    }
-}
-
-[WolverineIgnore]
-public static class MissingStartStreamEndpoint
-{
-    [WolverinePost("/created-aggregate/missing")]
-    public static CreatedAggregate<CreatedAggregateTarget> Post(StartCreatedAggregate command) => new();
-}
-
-[WolverineIgnore]
-public static class MismatchedStreamTypeEndpoint
-{
-    // The marker names CreatedAggregateTarget but the only stream starts an OtherAggregateTarget.
-    [WolverinePost("/created-aggregate/mismatched")]
-    public static (CreatedAggregate<CreatedAggregateTarget>, StartStream<OtherAggregateTarget>) Post(
-        StartCreatedAggregate command)
-    {
-        return (new CreatedAggregate<CreatedAggregateTarget>(),
-            MartenOps.StartStream<OtherAggregateTarget>(command.Id, new CreatedAggregateCounted()));
-    }
-}
-
-[WolverineIgnore]
-public static class AmbiguousStreamsEndpoint
-{
-    // Two IStartStream returns and neither declares a concrete StartStream<T>, so nothing can be
-    // matched to the marker's type argument.
-    [WolverinePost("/created-aggregate/ambiguous")]
-    public static (CreatedAggregate<CreatedAggregateTarget>, IStartStream, IStartStream) Post(
-        StartCreatedAggregate command)
-    {
-        return (new CreatedAggregate<CreatedAggregateTarget>(),
-            MartenOps.StartStream<CreatedAggregateTarget>(new CreatedAggregateCounted()),
-            MartenOps.StartStream<OtherAggregateTarget>(new CreatedAggregateCounted()));
+        return new CreatedAggregate<CreatedAggregateTarget>(
+            MartenOps.StartStream<CreatedAggregateTarget>(command.Id, new CreatedAggregateCounted()),
+            $"/created-aggregate/{command.Id}");
     }
 }

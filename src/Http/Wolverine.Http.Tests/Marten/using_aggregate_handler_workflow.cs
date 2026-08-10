@@ -372,7 +372,7 @@ public class using_aggregate_handler_workflow(AppFixture fixture) : IntegrationC
     }
 
     [Fact]
-    public async Task return_created_aggregate_with_non_generic_marker()
+    public async Task return_created_aggregate_with_explicit_stream_id()
     {
         var id = Guid.NewGuid();
 

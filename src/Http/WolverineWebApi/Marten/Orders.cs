@@ -285,31 +285,23 @@ public static class MarkItemEndpoint
     // Deliberately not [Transactional]: CreatedAggregate.ConfigureResponse must add the
     // transactional frames itself so the FetchLatest response frame lands after the commit
     [WolverinePost("/orders/create5")]
-    public static (CreatedAggregate<Order>, IStartStream) StartOrder5(StartOrder command)
+    public static CreatedAggregate<Order> StartOrder5(StartOrder command)
     {
         var items = command.Items.Select(x => new Item { Name = x }).ToArray();
 
         var startStream = MartenOps.StartStream<Order>(new OrderCreated(items));
 
-        return (
-            new CreatedAggregate<Order>($"/orders/{startStream.StreamId}"),
-            startStream
-        );
+        return new CreatedAggregate<Order>(startStream, $"/orders/{startStream.StreamId}");
     }
 
     [WolverinePost("/orders/create6")]
-    public static (CreatedAggregate, StartStream<Order>) StartOrder6(StartOrderWithId command)
+    public static CreatedAggregate<Order> StartOrder6(StartOrderWithId command)
     {
         var items = command.Items.Select(x => new Item { Name = x }).ToArray();
 
-        // The aggregate type for the non-generic CreatedAggregate is resolved from
-        // the StartStream<Order> return type
-        var startStream = MartenOps.StartStream<Order>(command.Id, new OrderCreated(items));
-
-        return (
-            new CreatedAggregate($"/orders/{command.Id}"),
-            startStream
-        );
+        return new CreatedAggregate<Order>(
+            MartenOps.StartStream<Order>(command.Id, new OrderCreated(items)),
+            $"/orders/{command.Id}");
     }
 
     // GH-3420: {id} has no route constraint and appears nowhere in the method signature -- it is the

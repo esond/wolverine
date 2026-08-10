@@ -76,8 +76,11 @@ public class handler_actions_with_returned_StartStream : PostgresqlContext, IAsy
         created.BCount.ShouldBe(1);
     }
 
+    // The marker no longer occupies a tuple slot for its own stream, but additional stream side
+    // effects can still ride along in the tuple. Those run through the ordinary return-action
+    // path while the marker's own stream runs through the postprocessors - both have to persist.
     [Fact]
-    public async Task created_aggregate_disambiguates_by_stream_type()
+    public async Task created_aggregate_composes_with_an_additional_stream_side_effect()
     {
         var letterId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
@@ -94,54 +97,11 @@ public class handler_actions_with_returned_StartStream : PostgresqlContext, IAsy
         events.Count.ShouldBe(1);
     }
 
-    [Fact]
-    public async Task created_aggregate_with_no_start_stream_complains()
-    {
-        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
-        {
-            using var host = await Host.CreateDefaultBuilder()
-                .UseWolverine(opts =>
-                {
-                    opts.Discovery.DisableConventionalDiscovery()
-                        .IncludeType(typeof(MissingStartStreamHandler));
-                    opts.Durability.Mode = DurabilityMode.Solo;
-                    opts.Services
-                        .AddMarten(Servers.PostgresConnectionString)
-                        .IntegrateWithWolverine();
-                }).StartAsync();
-
-            await host.InvokeMessageAndWaitAsync(new InvalidStartMessage());
-        });
-
-        ex.Message.ShouldContain("does not also return an IStartStream value");
-    }
-
-    [Fact]
-    public async Task created_aggregate_with_mismatched_stream_type_complains()
-    {
-        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
-        {
-            using var host = await Host.CreateDefaultBuilder()
-                .UseWolverine(opts =>
-                {
-                    opts.Discovery.DisableConventionalDiscovery()
-                        .IncludeType(typeof(MismatchedStreamTypeHandler));
-                    opts.Durability.Mode = DurabilityMode.Solo;
-                    opts.Services
-                        .AddMarten(Servers.PostgresConnectionString)
-                        .IntegrateWithWolverine();
-                }).StartAsync();
-
-            await host.InvokeMessageAndWaitAsync(new MismatchedStartMessage(Guid.NewGuid()));
-        });
-
-        ex.Message.ShouldContain("starts a different aggregate type");
-    }
-
     // The cascaded response has to be enqueued BEFORE the outbox flush. HandlerChain.UseForResponse
-    // appends CaptureCascadingMessages to the postprocessors, so a FlushOutgoingMessages that
-    // MartenOpPolicy already added has to be moved back to the end. Otherwise the reply is enqueued
-    // after the flush already ran and MultiFlushMode.OnlyOnce drops it (GH-3499). Asserted at the
+    // appends CaptureCascadingMessages to the postprocessors, so the FlushOutgoingMessages that
+    // ConfigureResponse itself adds (or that a policy already added) has to be moved back to the
+    // end. Otherwise the reply is enqueued after the flush already ran and MultiFlushMode.OnlyOnce
+    // drops it (GH-3499). Asserted at the
     // composition surface: InvokeMessageAndWaitAsync sets DoNotCascadeResponse, so a runtime test
     // never exercises the enqueue path at all.
     [Fact]
@@ -289,8 +249,6 @@ public record StartStreamMessage2(string Id);
 public record StartLetterMessage(int A, int B);
 public record StartTwoStreamsMessage(Guid LetterId, Guid DocumentId);
 public record StartLetterBookMessage(string Id);
-public record InvalidStartMessage;
-public record MismatchedStartMessage(Guid Id);
 
 public class LetterBook
 {
@@ -314,7 +272,7 @@ public static class StartStreamMessageHandler
         return MartenOps.StartStream<NamedDocument>(message.Id, new CEvent(), new BEvent());
     }
 
-    public static (CreatedAggregate<LetterAggregate>, IStartStream) Handle(StartLetterMessage message)
+    public static CreatedAggregate<LetterAggregate> Handle(StartLetterMessage message)
     {
         var events = new List<object> { new LetterStarted() };
         for (var i = 0; i < message.A; i++)
@@ -327,49 +285,31 @@ public static class StartStreamMessageHandler
             events.Add(new BEvent());
         }
 
-        return (new CreatedAggregate<LetterAggregate>(), MartenOps.StartStream<LetterAggregate>(events.ToArray()));
+        return new CreatedAggregate<LetterAggregate>(MartenOps.StartStream<LetterAggregate>(events.ToArray()));
     }
 
-    public static (CreatedAggregate<LetterAggregate>, StartStream<LetterAggregate>, StartStream<NamedDocument>) Handle(
+    public static (CreatedAggregate<LetterAggregate>, StartStream<NamedDocument>) Handle(
         StartTwoStreamsMessage message)
     {
         return (
-            new CreatedAggregate<LetterAggregate>(),
-            MartenOps.StartStream<LetterAggregate>(message.LetterId, new LetterStarted(), new AEvent()),
+            new CreatedAggregate<LetterAggregate>(
+                MartenOps.StartStream<LetterAggregate>(message.LetterId, new LetterStarted(), new AEvent())),
             MartenOps.StartStream<NamedDocument>(message.DocumentId, new AEvent())
         );
     }
 
-    public static (CreatedAggregate<LetterBook>, IStartStream) Handle(StartLetterBookMessage message)
+    public static CreatedAggregate<LetterBook> Handle(StartLetterBookMessage message)
     {
-        return (new CreatedAggregate<LetterBook>(),
+        return new CreatedAggregate<LetterBook>(
             MartenOps.StartStream<LetterBook>(message.Id, new AEvent(), new AEvent(), new BEvent()));
     }
 }
 
-public static class MissingStartStreamHandler
-{
-    public static CreatedAggregate<LetterAggregate> Handle(InvalidStartMessage message) => new();
-}
-
 public static class TenantedStartStreamHandler
 {
-    public static (CreatedAggregate<LetterAggregate>, StartStream<LetterAggregate>) Handle(
-        StartTenantedLetterMessage message)
+    public static CreatedAggregate<LetterAggregate> Handle(StartTenantedLetterMessage message)
     {
-        return (new CreatedAggregate<LetterAggregate>(),
+        return new CreatedAggregate<LetterAggregate>(
             MartenOps.StartStream<LetterAggregate>(message.Id, message.TenantId, new LetterStarted(), new AEvent()));
-    }
-}
-
-public static class MismatchedStreamTypeHandler
-{
-    // The marker names LetterAggregate but the only stream starts a NamedDocument. Wolverine has to
-    // catch that at codegen time rather than project one aggregate's events into the other.
-    public static (CreatedAggregate<LetterAggregate>, StartStream<NamedDocument>) Handle(
-        MismatchedStartMessage message)
-    {
-        return (new CreatedAggregate<LetterAggregate>(),
-            MartenOps.StartStream<NamedDocument>(message.Id, new AEvent()));
     }
 }

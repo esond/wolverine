@@ -28,10 +28,6 @@ using System.Diagnostics.CodeAnalysis;
     Scope = "namespaceanddescendants",
     Target = "~N:Wolverine.Polecat",
     Justification = "Wolverine.Polecat codegen — reflection over user aggregate / event types statically rooted via handler discovery + Polecat registration. AOT consumers run pre-generated frames. See AOT guide.")]
-[assembly: UnconditionalSuppressMessage("Trimming", "IL2055",
-    Scope = "namespaceanddescendants",
-    Target = "~N:Wolverine.Polecat",
-    Justification = "Wolverine.Polecat codegen — MakeGenericType over user aggregate types at codegen time (CreatedAggregate); types statically rooted via handler discovery + Polecat registration. See AOT guide.")]
 [assembly: UnconditionalSuppressMessage("Trimming", "IL2060",
     Scope = "namespaceanddescendants",
     Target = "~N:Wolverine.Polecat",
