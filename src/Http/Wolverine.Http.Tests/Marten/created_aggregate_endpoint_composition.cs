@@ -73,6 +73,23 @@ public class created_aggregate_endpoint_composition
         statusCodes.ShouldNotContain(200);
     }
 
+    // IsTransactional is a declaration every commit-adding path owes its readers (GH-3893):
+    // ConfigureResponse appends the SaveChanges frame itself, and AutoApplyTransactions can never
+    // flag this chain because the wrapped StartStream<T> is not a return variable its CanApply
+    // matches. Without the declaration, IHttpPolicy authors and the eager-idempotency policy would
+    // classify a committing chain as non-transactional.
+    [Fact]
+    public async Task chain_declares_itself_transactional()
+    {
+        await using var host = await buildHostAsync(typeof(ValidCreatedAggregateEndpoint));
+
+        var chain = host.Services.GetRequiredService<WolverineHttpOptions>()
+            .Endpoints!.ChainFor("POST", "/created-aggregate/valid");
+        chain.ShouldNotBeNull();
+
+        chain.IsTransactional.ShouldBeTrue();
+    }
+
     // Guards the load-bearing frame placement in CreatedAggregate<T>.ConfigureResponse:
     // HttpChain.Codegen emits return actions only for Method.Creates.Skip(1), and the marker is
     // the single return value, i.e. Creates[0]. If the stream-start were ever moved from the

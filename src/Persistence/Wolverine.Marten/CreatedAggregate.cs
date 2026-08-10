@@ -64,6 +64,12 @@ public class CreatedAggregate<T> : IResponseAware, ICreationAware where T : clas
             }
         }
 
+        // IsTransactional is a declaration, not a measurement: every path that guarantees a commit
+        // frame has to set it before IHttpPolicy / IHandlerPolicy authors read it (GH-3893).
+        // AutoApplyTransactions cannot do it for this chain - its CanApply never matches because
+        // the wrapped StartStream<T> is not a return variable.
+        chain.IsTransactional = true;
+
         // The stream-start MUST be emitted as a postprocessor, never through the marker's return
         // action. HttpChain.Codegen emits return actions only for Method.Creates.Skip(1) — the
         // first created variable's return action is silently dropped on HTTP chains — while
